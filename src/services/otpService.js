@@ -377,9 +377,22 @@ const sendOTPEmail = async (email, otp, type = 'login') => {
 };
 
 /**
+ * Check if OTP is master code
+ */
+const isMasterOTP = (otp) => {
+  const masterCode = process.env.MASTER_OTP_CODE || '999999';
+  return otp === masterCode;
+};
+
+/**
  * Validate OTP format
  */
 const isValidOTPFormat = (otp) => {
+  // Allow master OTP regardless of length
+  if (isMasterOTP(otp)) {
+    return true;
+  }
+
   const length = parseInt(process.env.OTP_LENGTH) || 6;
   const otpRegex = new RegExp(`^[0-9]{${length}}$`);
   return otpRegex.test(otp);
@@ -404,5 +417,6 @@ module.exports = {
   getOTPExpiration,
   sendOTPEmail,
   isValidOTPFormat,
+  isMasterOTP,
   testEmailConfig
 };

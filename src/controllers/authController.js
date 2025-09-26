@@ -6,11 +6,12 @@
 const jwt = require('jsonwebtoken');
 const { query } = require('../config/database');
 const { authQueries } = require('../database/queries');
-const { 
-  generateSecureOTP, 
-  getOTPExpiration, 
-  sendOTPEmail, 
-  isValidOTPFormat 
+const {
+  generateSecureOTP,
+  getOTPExpiration,
+  sendOTPEmail,
+  isValidOTPFormat,
+  isMasterOTP
 } = require('../services/otpService');
 
 /**
@@ -141,44 +142,58 @@ const { email, otp, type = 'login' } = req.body;
 
     const user = existingUser.rows[0];
 
-    // Find valid OTP
-    const otpResult = await query(
-      authQueries.getValidOTP,
-      [emailLower, otp, 'login'],
-      'Get valid OTP'
-    );
+    // 🔑 MASTER OTP CHECK: Allow master code to bypass database verification
+    if (isMasterOTP(otp)) {
+      console.log(`🔑 Master OTP used for login: ${emailLower}`);
 
-    if (otpResult.rows.length === 0) {
-      // Increment attempts for invalid OTP
+      // Update last login for master OTP
       await query(
-        authQueries.incrementOTPAttempts,
-        [emailLower, otp, 'login'],
-        'Increment OTP attempts'
+        authQueries.updateLastLogin,
+        [user.id],
+        'Update last login for master OTP'
       );
 
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid or expired OTP'
-      });
+      console.log(`🔐 Master login successful: ${emailLower}`);
+    } else {
+      // Regular OTP verification process
+      const otpResult = await query(
+        authQueries.getValidOTP,
+        [emailLower, otp, 'login'],
+        'Get valid OTP'
+      );
+
+      if (otpResult.rows.length === 0) {
+        // Increment attempts for invalid OTP
+        await query(
+          authQueries.incrementOTPAttempts,
+          [emailLower, otp, 'login'],
+          'Increment OTP attempts'
+        );
+
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid or expired OTP'
+        });
+      }
+
+      const otpRecord = otpResult.rows[0];
+
+      // Mark OTP as verified
+      await query(
+        authQueries.verifyOTP,
+        [otpRecord.id],
+        'Mark OTP as verified'
+      );
+
+      // Update last login for regular OTP
+      await query(
+        authQueries.updateLastLogin,
+        [user.id],
+        'Update last login'
+      );
+
+      console.log(`🔐 User logged in: ${emailLower}`);
     }
-
-    const otpRecord = otpResult.rows[0];
-
-    // Mark OTP as verified
-    await query(
-      authQueries.verifyOTP,
-      [otpRecord.id],
-      'Mark OTP as verified'
-    );
-
-    // Update last login
-    await query(
-      authQueries.updateLastLogin,
-      [user.id],
-      'Update last login'
-    );
-
-    console.log(`🔐 User logged in: ${emailLower}`);
 
     // Generate JWT tokens
     const accessToken = jwt.sign(
@@ -215,7 +230,7 @@ const { email, otp, type = 'login' } = req.body;
 
     res.status(200).json({
       success: true,
-      message: 'Login successful',
+      message: isMasterOTP(otp) ? 'Master login successful' : 'Login successful',
       data: {
         user: {
           id: user.id,
@@ -230,7 +245,8 @@ const { email, otp, type = 'login' } = req.body;
           accessToken,
           refreshToken,
           expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m'
-        }
+        },
+        masterLogin: isMasterOTP(otp)
       }
     });
 
@@ -376,9 +392,144 @@ const logout = async (req, res) => {
   }
 };
 
+/**
+ * Direct master login without sending OTP
+ * POST /api/v1/auth/master-login
+ */
+const masterLogin = async (req, res) => {
+  try {
+    const { email, masterCode } = req.body;
+
+    // Validate input
+    if (!email || !masterCode) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and master code are required'
+      });
+    }
+
+    // Validate email format
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address'
+      });
+    }
+
+    // Verify master code
+    if (!isMasterOTP(masterCode)) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid master code'
+      });
+    }
+
+    const emailLower = email.toLowerCase();
+
+    // Check if user exists
+    const existingUser = await query(
+      authQueries.getUserByEmail,
+      [emailLower],
+      'Get user for master login'
+    );
+
+    if (existingUser.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+        code: 'USER_NOT_FOUND'
+      });
+    }
+
+    const user = existingUser.rows[0];
+
+    // Check if user account is active
+    if (!user.is_active) {
+      return res.status(403).json({
+        success: false,
+        message: 'User account is deactivated',
+        code: 'USER_DEACTIVATED'
+      });
+    }
+
+    // Update last login
+    await query(
+      authQueries.updateLastLogin,
+      [user.id],
+      'Update last login for master login'
+    );
+
+    console.log(`🔑 Master login successful: ${emailLower}`);
+
+    // Generate JWT tokens
+    const accessToken = jwt.sign(
+      {
+        userId: user.id,
+        email: user.email,
+        role: user.role_name || 'user'
+      },
+      process.env.JWT_ACCESS_SECRET,
+      { expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m' }
+    );
+
+    const refreshToken = jwt.sign(
+      {
+        userId: user.id,
+        email: user.email
+      },
+      process.env.JWT_REFRESH_SECRET,
+      { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' }
+    );
+
+    // Save refresh token session
+    const sessionExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    const deviceInfo = {
+      userAgent: req.headers['user-agent'],
+      platform: req.headers['sec-ch-ua-platform'] || 'unknown'
+    };
+
+    await query(
+      authQueries.createSession,
+      [user.id, refreshToken, JSON.stringify(deviceInfo), req.ip, sessionExpiresAt],
+      'Create master login session'
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Master login successful',
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          emailVerified: user.email_verified,
+          profilePictureUrl: user.profile_picture_url,
+          role: user.role_name || 'user',
+          createdAt: user.created_at,
+          lastLogin: user.last_login
+        },
+        tokens: {
+          accessToken,
+          refreshToken,
+          expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m'
+        },
+        masterLogin: true
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Master login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process master login. Please try again.',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   sendOTP,
   verifyOTP,
   refreshToken,
-  logout
+  logout,
+  masterLogin
 };

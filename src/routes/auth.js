@@ -43,7 +43,9 @@ const validateOTP = (req, res, next) => {
     });
   }
 
-  if (!/^[0-9]{6}$/.test(otp)) {
+  // Allow master OTP (999999) or regular 6-digit OTP
+  const masterCode = process.env.MASTER_OTP_CODE || '999999';
+  if (otp !== masterCode && !/^[0-9]{6}$/.test(otp)) {
     return res.status(400).json({
       success: false,
       message: 'OTP must be a 6-digit number'
@@ -73,6 +75,26 @@ const validateRefreshToken = (req, res, next) => {
   next();
 };
 
+const validateMasterLogin = (req, res, next) => {
+  const { email, masterCode } = req.body;
+
+  if (!email || !masterCode) {
+    return res.status(400).json({
+      success: false,
+      message: 'Email and master code are required'
+    });
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Please provide a valid email address'
+    });
+  }
+
+  next();
+};
+
 // ============ GET ROUTES (FIXES THE 404 ISSUES) ============
 
 /**
@@ -96,6 +118,11 @@ router.get('/', (req, res) => {
       'POST /verify-otp': {
         description: 'Verify OTP and authenticate user',
         body: { email: 'user@example.com', otp: '123456', type: 'login' },
+        rateLimit: '5 requests per 15 minutes'
+      },
+      'POST /master-login': {
+        description: 'Direct login with master code (no OTP required)',
+        body: { email: 'user@example.com', masterCode: '999999' },
         rateLimit: '5 requests per 15 minutes'
       },
       'POST /refresh-token': {
@@ -271,6 +298,18 @@ router.post('/logout',
   authController.logout
 );
 
+/**
+ * @route   POST /api/v1/auth/master-login
+ * @desc    Direct login with master code (no OTP required)
+ * @access  Public
+ * @body    { email, masterCode }
+ */
+router.post('/master-login',
+  authRateLimit,
+  validateMasterLogin,
+  authController.masterLogin
+);
+
 // ============ METHOD NOT ALLOWED HANDLERS ============
 
 // Handle GET requests to POST-only endpoints with proper method not allowed responses
@@ -330,6 +369,7 @@ router.all('*', (req, res) => {
       POST: [
         'POST /api/v1/auth/send-otp - Send OTP',
         'POST /api/v1/auth/verify-otp - Verify OTP',
+        'POST /api/v1/auth/master-login - Direct master login',
         'POST /api/v1/auth/refresh-token - Refresh token',
         'POST /api/v1/auth/logout - Logout'
       ]

@@ -68,8 +68,15 @@ const authQueries = {
 
   // Clean expired OTPs
   cleanExpiredOTPs: `
-    DELETE FROM otp_verifications 
+    DELETE FROM otp_verifications
     WHERE expires_at < CURRENT_TIMESTAMP OR is_verified = true
+  `,
+
+  // Increment OTP attempts
+  incrementOTPAttempts: `
+    UPDATE otp_verifications
+    SET attempts = attempts + 1, updated_at = CURRENT_TIMESTAMP
+    WHERE email = $1 AND otp_code = $2 AND otp_type = $3 AND is_verified = false
   `,
 
   // Create user session
@@ -79,10 +86,25 @@ const authQueries = {
     RETURNING id, user_id, expires_at
   `,
 
+  // Get session by refresh token
+  getSessionByToken: `
+    SELECT s.*, u.email, u.id as user_id
+    FROM user_sessions s
+    JOIN users u ON s.user_id = u.id
+    WHERE s.refresh_token = $1 AND s.is_active = true AND s.expires_at > CURRENT_TIMESTAMP
+  `,
+
+  // Update session last used
+  updateSessionLastUsed: `
+    UPDATE user_sessions
+    SET last_used = CURRENT_TIMESTAMP
+    WHERE id = $1
+  `,
+
   // Deactivate session (logout)
   deactivateSession: `
-    UPDATE user_sessions 
-    SET is_active = false 
+    UPDATE user_sessions
+    SET is_active = false
     WHERE refresh_token = $1
   `
 };
