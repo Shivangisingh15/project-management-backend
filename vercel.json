@@ -1,26 +1,15 @@
- {
-  "version": 2,
-  "name": "your-app-backend",
-  "builds": [
-    {
-      "src": "src/server.js",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "src/server.js"
-    }
-  ],
-  "env": {
-    "NODE_ENV": "production"
-  },
+{
   "functions": {
-    "src/server.js": {
+    "api/index.js": {
       "maxDuration": 30
     }
   },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api"
+    }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
@@ -38,12 +27,6 @@
           "value": "Content-Type, Authorization, X-Requested-With"
         }
       ]
-    }
-  ],
-  "rewrites": [
-    {
-      "source": "/api/v1/(.*)",
-      "destination": "/src/server.js"
     }
   ]
 }
