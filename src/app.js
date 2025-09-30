@@ -13,6 +13,7 @@ const rateLimit = require('express-rate-limit');
 // Import routes
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/user');
+const adminRoutes = require('./routes/admin');
 const healthController = require('./controllers/healthController');
 
 // Create Express app
@@ -29,7 +30,13 @@ app.use(helmet({
 // CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
-    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:5175'];
+    // Update this line to use port 5175
+    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
+      'http://localhost:3000', 
+      'http://localhost:5175',  // Changed from 5173 to 5175
+      'http://localhost:8081'
+    ];
+    
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -139,6 +146,7 @@ app.get('/health', healthController.checkHealth);
 const API_VERSION = process.env.API_VERSION || 'v1';
 app.use(`/api/${API_VERSION}/auth`, authRoutes);
 app.use(`/api/${API_VERSION}/user`, userRoutes);
+app.use(`/api/${API_VERSION}/admin`, adminRoutes);
 
 // API documentation (enhanced)
 app.get(`/api/${API_VERSION}/docs`, (req, res) => {
@@ -256,6 +264,48 @@ app.get(`/api/${API_VERSION}/docs`, (req, res) => {
       }
     }
   });
+});
+
+// =============================================================================
+// FOR TESTING - Add these example endpoints to see everything working
+// =============================================================================
+
+// Test endpoint to check admin access
+app.get(`/api/${API_VERSION}/admin/test`,
+  require('./middleware/auth').verifyToken,
+  require('./middleware/auth').requireRole(['admin']),
+  (req, res) => {
+    res.json({
+      success: true,
+      message: 'Admin access confirmed!',
+      user: req.user,
+      timestamp: new Date().toISOString()
+    });
+  }
+);
+
+// Health check with database connection test
+app.get(`/api/${API_VERSION}/health/database`, async (req, res) => {
+  try {
+    const { query } = require('./config/database');
+    const result = await query('SELECT NOW() as current_time, version() as db_version');
+
+    res.json({
+      success: true,
+      message: 'Database connection healthy',
+      data: {
+        current_time: result.rows[0].current_time,
+        db_version: result.rows[0].db_version,
+        connection_status: 'connected'
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Database connection failed',
+      error: error.message
+    });
+  }
 });
 
 // Enhanced 404 handler
