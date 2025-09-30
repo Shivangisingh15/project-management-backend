@@ -32,11 +32,12 @@ const corsOptions = {
   origin: function (origin, callback) {
     // Update this line to use port 5175
     const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
-      'http://localhost:3000', 
+      'http://localhost:3000',
       'http://localhost:5175',  // Changed from 5173 to 5175
-      'http://localhost:8081'
+      'http://localhost:8081',
+      'https://lancehawks-admin-hub.web.app'
     ];
-    
+
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -374,7 +375,7 @@ app.use((error, req, res, next) => {
     return res.status(403).json({
       success: false,
       message: 'CORS policy violation',
-      allowedOrigins: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:5175'],
+      allowedOrigins: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:5175', 'https://lancehawks-admin-hub.web.app'],
       timestamp
     });
   }
