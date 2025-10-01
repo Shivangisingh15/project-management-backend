@@ -551,11 +551,113 @@ const getUserStatistics = async (req, res) => {
   }
 };
 
+/**
+ * Hard delete user (Permanently remove from database)
+ * DELETE /api/v1/admin/users/:id/hard-delete
+ */
+const hardDeleteUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const adminId = req.user.id;
+
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format'
+      });
+    }
+
+    // Prevent admin from deleting themselves
+    if (id === adminId) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot delete your own account',
+        code: 'SELF_DELETION_BLOCKED'
+      });
+    }
+
+    // Get current user data for audit log
+    const currentUserResult = await query(
+      adminQueries.getUserByIdAdmin,
+      [id],
+      'Get user before hard deletion'
+    );
+
+    if (currentUserResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+        code: 'USER_NOT_FOUND'
+      });
+    }
+
+    const currentUser = currentUserResult.rows[0];
+
+    // Log admin action before deletion
+    await logAdminAction({
+      adminId,
+      action: 'USER_HARD_DELETED',
+      resourceType: 'user',
+      resourceId: id,
+      oldValues: {
+        email: currentUser.email,
+        employee_id: currentUser.employee_id,
+        role_id: currentUser.role_id
+      },
+      newValues: null,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+
+    // Hard delete user - permanently remove from database
+    const deleteResult = await query(
+      'DELETE FROM users WHERE id = $1 RETURNING id, email, employee_id',
+      [id],
+      'Hard delete user'
+    );
+
+    if (deleteResult.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Failed to delete user',
+        code: 'DELETE_FAILED'
+      });
+    }
+
+    console.log(`👤 Admin ${req.user.email} permanently deleted user: ${currentUser.email} (${currentUser.employee_id})`);
+
+    res.status(200).json({
+      success: true,
+      message: 'User permanently deleted from database',
+      data: {
+        user: {
+          id: currentUser.id,
+          email: currentUser.email,
+          employee_id: currentUser.employee_id
+        },
+        performed_by: req.user.email,
+        warning: 'This action cannot be undone'
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Hard delete user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete user. Please try again.',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   createUser,
   getAllUsers,
   getUserById,
   updateUserStatus,
   deleteUser,
+  hardDeleteUser,
   getUserStatistics
 };

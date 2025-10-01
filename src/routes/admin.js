@@ -16,6 +16,7 @@ const {
   getUserById,
   updateUserStatus,
   deleteUser,
+  hardDeleteUser,
   getUserStatistics
 } = require('../controllers/adminController');
 
@@ -75,6 +76,13 @@ router.put('/users/:id/status', updateUserStatus);
  * DELETE /api/v1/admin/users/:id
  */
 router.delete('/users/:id', deleteUser);
+
+/**
+ * Hard delete user (Permanently remove from database)
+ * DELETE /api/v1/admin/users/:id/hard-delete
+ * WARNING: This action cannot be undone
+ */
+router.delete('/users/:id/hard-delete', hardDeleteUser);
 
 // =============================================================================
 // STATISTICS ROUTES
