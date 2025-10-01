@@ -613,53 +613,70 @@ const hardDeleteUser = async (req, res) => {
 
     // Hard delete user - permanently remove from database
     // Delete related records first to avoid foreign key constraint errors
+    try {
+      // 1. Delete user sessions
+      const sessionsResult = await query(
+        'DELETE FROM user_sessions WHERE user_id = $1',
+        [id],
+        'Delete user sessions'
+      );
+      console.log(`Deleted ${sessionsResult.rowCount} user sessions`);
 
-    // 1. Delete user sessions
-    await query(
-      'DELETE FROM user_sessions WHERE user_id = $1',
-      [id],
-      'Delete user sessions'
-    );
+      // 2. Delete OTP verifications
+      const otpResult = await query(
+        'DELETE FROM otp_verifications WHERE email = $1',
+        [currentUser.email],
+        'Delete OTP verifications'
+      );
+      console.log(`Deleted ${otpResult.rowCount} OTP verifications`);
 
-    // 2. Delete OTP verifications
-    await query(
-      'DELETE FROM otp_verifications WHERE email = $1',
-      [currentUser.email],
-      'Delete OTP verifications'
-    );
+      // 3. Update audit_logs to remove user_id reference (set to NULL)
+      const auditResult = await query(
+        'UPDATE audit_logs SET user_id = NULL WHERE user_id = $1',
+        [id],
+        'Nullify audit log user references'
+      );
+      console.log(`Updated ${auditResult.rowCount} audit logs`);
 
-    // 3. Update audit_logs to remove user_id reference (set to NULL)
-    await query(
-      'UPDATE audit_logs SET user_id = NULL WHERE user_id = $1',
-      [id],
-      'Nullify audit log user references'
-    );
+      // 4. Update users table to remove created_by and deleted_by references
+      const createdByResult = await query(
+        'UPDATE users SET created_by = NULL WHERE created_by = $1',
+        [id],
+        'Remove created_by references'
+      );
+      console.log(`Updated ${createdByResult.rowCount} created_by references`);
 
-    // 4. Update users table to remove created_by and deleted_by references
-    await query(
-      'UPDATE users SET created_by = NULL WHERE created_by = $1',
-      [id],
-      'Remove created_by references'
-    );
+      const deletedByResult = await query(
+        'UPDATE users SET deleted_by = NULL WHERE deleted_by = $1',
+        [id],
+        'Remove deleted_by references'
+      );
+      console.log(`Updated ${deletedByResult.rowCount} deleted_by references`);
 
-    await query(
-      'UPDATE users SET deleted_by = NULL WHERE deleted_by = $1',
-      [id],
-      'Remove deleted_by references'
-    );
+      // 5. Finally delete the user
+      const deleteResult = await query(
+        'DELETE FROM users WHERE id = $1 RETURNING id, email, employee_id',
+        [id],
+        'Trying to delete user from database'
+      );
 
-    // 5. Finally delete the user
-    const deleteResult = await query(
-      'DELETE FROM users WHERE id = $1 RETURNING id, email, employee_id',
-      [id],
-      'Trying to delete user from database'
-    );
+      if (deleteResult.rows.length === 0) {
+        console.error('❌ User deletion returned 0 rows - user may not exist or deletion blocked');
+        return res.status(400).json({
+          success: false,
+          message: 'Failed to delete user from database',
+          code: 'DELETE_FAILED'
+        });
+      }
 
-    if (deleteResult.rows.length === 0) {
-      return res.status(400).json({
+      console.log(`✅ Successfully deleted user ${currentUser.email} from database`);
+    } catch (deleteError) {
+      console.error('❌ Hard delete error details:', deleteError);
+      return res.status(500).json({
         success: false,
-        message: 'Failed to delete user',
-        code: 'DELETE_FAILED'
+        message: 'Database deletion failed: ' + deleteError.message,
+        code: 'DB_DELETE_ERROR',
+        error: process.env.NODE_ENV === 'development' ? deleteError.message : undefined
       });
     }
 
