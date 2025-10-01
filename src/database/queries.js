@@ -108,7 +108,11 @@ const authQueries = {
     WHERE refresh_token = $1
   `
 };
-
+ // hard delete user
+ hardDeleteUser: `
+  DELETE FROM users 
+  WHERE id = $1 AND deleted_at IS NOT NULL
+  RETURNING id, email, employee_id`
 // =============================================================================
 // USER MANAGEMENT QUERIES
 // =============================================================================

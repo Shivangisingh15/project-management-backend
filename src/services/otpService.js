@@ -341,10 +341,16 @@ const sendOTPEmail = async (email, otp, type = 'login') => {
       html: emailContent.html
     };
 
+    console.log(`📧 Attempting to send email to: ${email}`);
+    console.log(`📧 From: ${fromEmail}`);
+    console.log(`📧 EMAIL_USER: ${process.env.EMAIL_USER}`);
+    console.log(`📧 EMAIL_PASS set: ${process.env.EMAIL_PASS ? 'Yes' : 'No'}`);
+
     const result = await transporter.sendMail(mailOptions);
-    
+
+    console.log(`✅ Email sent successfully - MessageID: ${result.messageId}`);
     if (process.env.NODE_ENV === 'development') {
-      console.log(`✅ LanceHawks OTP sent to ${email} - OTP: ${otp}`);
+      console.log(`🔢 OTP: ${otp}`);
     } else {
       console.log(`✅ LanceHawks OTP sent to ${email}`);
     }
