@@ -612,6 +612,20 @@ const hardDeleteUser = async (req, res) => {
     });
 
     // Hard delete user - permanently remove from database
+    // Delete related records first to avoid foreign key constraint errors
+    await query(
+      'DELETE FROM user_sessions WHERE user_id = $1',
+      [id],
+      'Delete user sessions'
+    );
+
+    await query(
+      'DELETE FROM otp_verifications WHERE email = $1',
+      [currentUser.email],
+      'Delete OTP verifications'
+    );
+
+    // Finally delete the user
     const deleteResult = await query(
       'DELETE FROM users WHERE id = $1 RETURNING id, email, employee_id',
       [id],
